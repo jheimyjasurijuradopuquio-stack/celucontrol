@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Environment variables & scratch files
+.env
+.env.*
+!.env.example
+scratch/
+.firebase/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
