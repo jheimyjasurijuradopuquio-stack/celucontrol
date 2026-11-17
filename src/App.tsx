@@ -16,6 +16,7 @@ const MainDashboard: React.FC = () => {
   const { user } = useAuth();
   const [currentView, setCurrentView] = useState<string>('mesas');
   const [selectedTable, setSelectedTable] = useState<DiningTable | null>(null);
+  const [initialOrderMode, setInitialOrderMode] = useState<'salon' | 'llevar'>('salon');
   const [pendingKitchenCount, setPendingKitchenCount] = useState<number>(0);
 
   // Escuchar comandas en cocina para mostrar badge en el menú
@@ -31,6 +32,13 @@ const MainDashboard: React.FC = () => {
   // Manejadores de navegación
   const handleSelectTableForOrder = (table: DiningTable) => {
     setSelectedTable(table);
+    setInitialOrderMode('salon');
+    setCurrentView('order-taking');
+  };
+
+  const handleTakeoutOrder = () => {
+    setSelectedTable(null);
+    setInitialOrderMode('llevar');
     setCurrentView('order-taking');
   };
 
@@ -51,7 +59,7 @@ const MainDashboard: React.FC = () => {
         return { title: 'Salón de Mesas', subtitle: 'Monitoreo de estado de atención en sala' };
       case 'order-taking':
         return {
-          title: `Toma de Pedidos · Mesa ${selectedTable?.numero || ''}`,
+          title: selectedTable ? `Toma de Pedidos · Mesa ${selectedTable.numero}` : 'Toma de Pedidos · Para Llevar',
           subtitle: 'Selección de carta, porciones y envío seguro a cocina'
         };
       case 'cocina':
@@ -93,14 +101,16 @@ const MainDashboard: React.FC = () => {
             <TablesPage
               onSelectTableForOrder={handleSelectTableForOrder}
               onSelectTableForCheckout={handleSelectTableForCheckout}
+              onTakeoutOrder={handleTakeoutOrder}
             />
           )}
 
-          {currentView === 'order-taking' && selectedTable && (
+          {currentView === 'order-taking' && (
             <OrderTakingPage
               table={selectedTable}
               onBackToTables={handleBackToTables}
               onOrderSent={() => setCurrentView('mesas')}
+              initialMode={initialOrderMode}
             />
           )}
 

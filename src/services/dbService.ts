@@ -14,7 +14,7 @@ import {
   writeBatch,
   Timestamp
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db } from '../firebase.ts';
 import {
   DiningTable,
   Product,
@@ -23,7 +23,8 @@ import {
   TableAttention,
   PaymentReceipt,
   OrderItem,
-  TicketStatus
+  TicketStatus,
+  PaymentMethod
 } from '../types';
 
 // ==========================================
@@ -149,6 +150,98 @@ export const createKitchenTicket = async (
   return docRef.id;
 };
 
+export const createTakeoutOrder = async (
+  mozoId: string,
+  mozoNombre: string,
+  items: OrderItem[],
+  metodoPago: PaymentMethod,
+  clienteNombre?: string,
+  observaciones?: string,
+  numeroPedido?: string
+): Promise<{ comandaId: string; atencionId: string }> => {
+  if (!items || items.length === 0) {
+    throw new Error('No se pueden enviar pedidos sin productos seleccionados.');
+  }
+
+  const subtotalItems = items.reduce((acc, item) => acc + (item.precioUnitario * item.cantidad), 0);
+  const subtotalGravado = +(subtotalItems / 1.18).toFixed(2);
+  const igv = +(subtotalItems - subtotalGravado).toFixed(2);
+  const codigoPedido = numeroPedido || `PL-${Math.floor(100 + Math.random() * 900)}`;
+
+  // 1. Crear documento en 'atenciones'
+  const atencionesRef = collection(db, 'atenciones');
+  const atencionDoc = await addDoc(atencionesRef, {
+    mesaId: 'llevar',
+    mesaNumero: 0,
+    mozoId,
+    mozoNombre,
+    comensales: 1,
+    estado: 'cerrada',
+    tipo: 'llevar',
+    numeroPedido: codigoPedido,
+    clienteNombre: clienteNombre?.trim() || 'Cliente Para Llevar',
+    comandasIds: [],
+    totalAcumulado: subtotalItems,
+    subtotal: subtotalGravado,
+    igv,
+    metodoPago,
+    fechaApertura: serverTimestamp(),
+    fechaCierre: serverTimestamp()
+  });
+
+  // 2. Crear documento en 'comandas' para cocina
+  const comandasRef = collection(db, 'comandas');
+  const comandaDoc = await addDoc(comandasRef, {
+    atencionId: atencionDoc.id,
+    mesaId: 'llevar',
+    mesaNumero: 0,
+    numeroComanda: 1,
+    tipo: 'llevar',
+    numeroPedido: codigoPedido,
+    clienteNombre: clienteNombre?.trim() || 'Cliente Para Llevar',
+    mozoId,
+    mozoNombre,
+    items,
+    estado: 'pendiente',
+    observaciones: observaciones || '',
+    metodoPago,
+    total: subtotalItems,
+    creadaEn: serverTimestamp(),
+    actualizadaEn: serverTimestamp()
+  });
+
+  // Actualizar atención con comandaId
+  await updateDoc(doc(db, 'atenciones', atencionDoc.id), {
+    comandasIds: [comandaDoc.id]
+  });
+
+  // 3. Registrar en 'pagos' si el usuario tiene permisos (cajero/admin)
+  try {
+    const pagosRef = doc(collection(db, 'pagos'));
+    await setDoc(pagosRef, {
+      atencionId: atencionDoc.id,
+      mesaNumero: 0,
+      tipo: 'llevar',
+      numeroPedido: codigoPedido,
+      subtotal: subtotalGravado,
+      igv,
+      total: subtotalItems,
+      metodoPago,
+      montoRecibido: subtotalItems,
+      vuelto: 0,
+      tipoComprobante: 'ticket',
+      clienteNombre: clienteNombre?.trim() || 'Cliente Para Llevar',
+      cajeroId: mozoId,
+      cajeroNombre: mozoNombre,
+      fechaPago: serverTimestamp()
+    });
+  } catch (pagoErr) {
+    console.info('Registro opcional en /pagos para pedido para llevar:', pagoErr);
+  }
+
+  return { comandaId: comandaDoc.id, atencionId: atencionDoc.id };
+};
+
 export const subscribeKitchenTickets = (
   callback: (tickets: KitchenTicket[]) => void,
   estadosPermitidos?: TicketStatus[]
@@ -172,7 +265,12 @@ export const subscribeKitchenTickets = (
         estado: data.estado,
         observaciones: data.observaciones || '',
         creadaEn: data.creadaEn,
-        actualizadaEn: data.actualizadaEn
+        actualizadaEn: data.actualizadaEn,
+        tipo: data.tipo || 'salon',
+        numeroPedido: data.numeroPedido || '',
+        clienteNombre: data.clienteNombre || '',
+        metodoPago: data.metodoPago,
+        total: data.total
       };
 
       if (!estadosPermitidos || estadosPermitidos.includes(ticket.estado)) {

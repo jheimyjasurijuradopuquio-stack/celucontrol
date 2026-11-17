@@ -54,12 +54,13 @@ export interface OrderItem {
 }
 
 export type TicketStatus = 'pendiente' | 'preparando' | 'listo' | 'entregado';
+export type OrderMode = 'salon' | 'llevar';
 
 export interface KitchenTicket {
   id: string;
   atencionId: string;
-  mesaId: string;
-  mesaNumero: number;
+  mesaId?: string;
+  mesaNumero?: number;
   numeroComanda: number;
   mozoId: string;
   mozoNombre: string;
@@ -69,14 +70,19 @@ export interface KitchenTicket {
   creadaEn: any; // Firestore Timestamp or ISO
   actualizadaEn?: any;
   tiempoEsperaMinutos?: number;
+  tipo?: OrderMode;
+  numeroPedido?: string;
+  clienteNombre?: string;
+  metodoPago?: PaymentMethod;
+  total?: number;
 }
 
 export type AttentionStatus = 'abierta' | 'cerrada' | 'cancelada';
 
 export interface TableAttention {
   id: string;
-  mesaId: string;
-  mesaNumero: number;
+  mesaId?: string;
+  mesaNumero?: number;
   mozoId: string;
   mozoNombre: string;
   comensales: number;
@@ -88,6 +94,9 @@ export interface TableAttention {
   fechaApertura: any;
   fechaCierre?: any;
   metodoPago?: PaymentMethod;
+  tipo?: OrderMode;
+  numeroPedido?: string;
+  clienteNombre?: string;
 }
 
 export type PaymentMethod = 'efectivo' | 'tarjeta' | 'yape' | 'plin';

@@ -48,6 +48,14 @@ export const KitchenPage: React.FC = () => {
     return Math.max(0, Math.floor((now - millis) / (1000 * 60)));
   };
 
+  // Formatear hora de creación
+  const formatCreationTime = (timestamp: any): string => {
+    if (!timestamp) return '';
+    const millis = timestamp.toMillis ? timestamp.toMillis() : (timestamp.seconds ? timestamp.seconds * 1000 : new Date(timestamp).getTime());
+    const date = new Date(millis);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   // Filtros
   const filteredTickets = tickets.filter((t) => {
     if (activeTab === 'activas') {
@@ -154,9 +162,28 @@ export const KitchenPage: React.FC = () => {
                 {/* Cabecera de la comanda */}
                 <div className="ticket-header">
                   <div>
-                    <h4>MESA {ticket.mesaNumero}</h4>
-                    <small style={{ color: 'var(--color-gray-500)', fontWeight: 600 }}>
-                      Comanda #{ticket.numeroComanda} · Mozo: {ticket.mozoNombre}
+                    {ticket.tipo === 'llevar' ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <h4 style={{ margin: 0 }}>PEDIDO #{ticket.numeroPedido || ticket.numeroComanda}</h4>
+                        <span style={{
+                          background: 'var(--color-orange-primary)',
+                          color: 'white',
+                          fontSize: '0.68rem',
+                          fontWeight: 800,
+                          padding: '2px 8px',
+                          borderRadius: 12,
+                          letterSpacing: '0.5px'
+                        }}>
+                          PARA LLEVAR
+                        </span>
+                      </div>
+                    ) : (
+                      <h4>MESA {ticket.mesaNumero}</h4>
+                    )}
+                    <small style={{ color: 'var(--color-gray-500)', fontWeight: 600, display: 'block', marginTop: 3 }}>
+                      {ticket.tipo === 'llevar'
+                        ? `${ticket.clienteNombre ? `Cliente: ${ticket.clienteNombre} · ` : ''}${formatCreationTime(ticket.creadaEn) ? `Hora: ${formatCreationTime(ticket.creadaEn)} · ` : ''}Mozo: ${ticket.mozoNombre}`
+                        : `Comanda #${ticket.numeroComanda} · ${formatCreationTime(ticket.creadaEn) ? `Hora: ${formatCreationTime(ticket.creadaEn)} · ` : ''}Mozo: ${ticket.mozoNombre}`}
                     </small>
                   </div>
 

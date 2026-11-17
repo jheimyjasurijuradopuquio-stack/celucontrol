@@ -9,17 +9,20 @@ import {
   Utensils,
   CheckCircle2,
   AlertCircle,
-  Sparkles
+  Sparkles,
+  ShoppingBag
 } from 'lucide-react';
 
 interface TablesPageProps {
   onSelectTableForOrder: (table: DiningTable) => void;
   onSelectTableForCheckout: (table: DiningTable) => void;
+  onTakeoutOrder?: () => void;
 }
 
 export const TablesPage: React.FC<TablesPageProps> = ({
   onSelectTableForOrder,
-  onSelectTableForCheckout
+  onSelectTableForCheckout,
+  onTakeoutOrder
 }) => {
   const { user } = useAuth();
   const [tables, setTables] = useState<DiningTable[]>([]);
@@ -112,6 +115,23 @@ export const TablesPage: React.FC<TablesPageProps> = ({
 
   return (
     <div>
+      {/* Barra superior de acción rápida */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ fontSize: '0.88rem', color: 'var(--color-gray-600)', fontWeight: 600 }}>
+          Control de Mesas y Atención en Sala
+        </div>
+        {onTakeoutOrder && (
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={onTakeoutOrder}
+            style={{ fontSize: '0.85rem', padding: '8px 16px' }}
+          >
+            <ShoppingBag size={16} /> Nuevo Pedido Para Llevar
+          </button>
+        )}
+      </div>
+
       {/* Resumen de Salón */}
       <div className="tables-header-stats">
         <div

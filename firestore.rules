@@ -1,109 +1,96 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ============================================================
-    // FUNCIONES DE SEGURIDAD Y CONTROL DE ACCESO POR ROLES (RBAC)
-    // ============================================================
-
-    // Verifica que el usuario tenga una sesión activa y válida en Firebase Auth
-    function isAuthenticated() {
+    function signedIn() {
       return request.auth != null;
     }
 
-    // Obtiene el rol del usuario desde su documento en /usuarios/{uid}
-    function getUserRole() {
-      return request.auth.token.email == 'admin@donbrasa.pe' ? 'admin' :
-        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) ?
-          get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role : 'mozo';
+    function userExists() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/usuarios/$(request.auth.uid));
     }
 
-    // Comprobaciones de roles específicos
+    function role() {
+      return userExists()
+        ? get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role
+        : '';
+    }
+
     function isAdmin() {
-      return isAuthenticated() && (request.auth.token.email == 'admin@donbrasa.pe' || getUserRole() == 'admin');
+      return signedIn() && role() == 'admin';
     }
 
     function isMozo() {
-      return isAuthenticated() && (getUserRole() == 'mozo' || isAdmin());
+      return signedIn() && (role() == 'mozo' || isAdmin());
     }
 
     function isCocina() {
-      return isAuthenticated() && (getUserRole() == 'cocina' || isAdmin());
+      return signedIn() && (role() == 'cocina' || isAdmin());
     }
 
     function isCajero() {
-      return isAuthenticated() && (getUserRole() == 'cajero' || isAdmin());
+      return signedIn() && (role() == 'cajero' || isAdmin());
     }
 
-    // ============================================================
-    // REGLAS POR COLECCIÓN
-    // ============================================================
-
-    // 1. Perfiles de Usuarios y Protección de Roles
     match /usuarios/{userId} {
-      allow read: if isAuthenticated();
-      // Un usuario solo puede crear su propio perfil y NO puede auto-asignarse rol admin a menos que sea el correo oficial
-      allow create: if isAuthenticated() && request.auth.uid == userId &&
-        (request.resource.data.role != 'admin' || request.auth.token.email == 'admin@donbrasa.pe');
-      // Solo administradores pueden cambiar roles de otros usuarios; un usuario común no puede modificar su propio rol
-      allow update: if isAuthenticated() && (
-        isAdmin() ||
-        (request.auth.uid == userId && request.resource.data.role == resource.data.role)
-      );
+      allow read: if signedIn() &&
+        (request.auth.uid == userId || isAdmin());
+
+      allow create: if signedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.role == 'mozo';
+
+      allow update: if isAdmin() ||
+        (signedIn() &&
+         request.auth.uid == userId &&
+         request.resource.data.role == resource.data.role);
+
       allow delete: if isAdmin();
     }
 
-    // 2. Mesas de Salón
-    match /mesas/{mesaId} {
-      allow read: if isAuthenticated();
-      // Mozos y administradores abren mesas; cajeros liberan mesas
+    match /mesas/{id} {
+      allow read: if signedIn();
       allow create: if isMozo();
       allow update: if isMozo() || isCajero();
       allow delete: if isAdmin();
     }
 
-    // 3. Catálogo de Platos y Categorías (Carta Oficial)
-    // Todo el personal puede consultar la carta; SOLO administradores pueden modificar precios o platos
-    match /categorias/{categoriaId} {
-      allow read: if isAuthenticated();
+    match /categorias/{id} {
+      allow read: if signedIn();
       allow write: if isAdmin();
     }
 
-    match /productos/{productoId} {
-      allow read: if isAuthenticated();
+    match /productos/{id} {
+      allow read: if signedIn();
       allow write: if isAdmin();
     }
 
-    // 4. Atenciones de Mesa (Cuentas en Sala)
-    match /atenciones/{atencionId} {
-      allow read: if isAuthenticated();
+    match /atenciones/{id} {
+      allow read: if signedIn();
       allow create: if isMozo();
       allow update: if isMozo() || isCajero();
       allow delete: if isAdmin();
     }
 
-    // 5. Comandas de Cocina
-    match /comandas/{comandaId} {
-      allow read: if isAuthenticated();
+    match /comandas/{id} {
+      allow read: if signedIn();
       allow create: if isMozo();
       allow update: if isCocina() || isMozo();
       allow delete: if isAdmin();
     }
 
-    // 6. Registro de Pagos y Liquidaciones
-    match /pagos/{pagoId} {
-      allow read: if isCajero() || isAdmin();
-      allow create: if isCajero() || isAdmin();
+    match /pagos/{id} {
+      allow read, create: if isCajero() || isAdmin();
       allow update, delete: if isAdmin();
     }
 
-    // 7. Colección de Diagnóstico / Verificación
-    match /diagnostico/{docId} {
-      allow read, write: if isAuthenticated();
+    match /diagnostico/{id} {
+      allow read, write: if signedIn();
     }
 
-    // 8. BLOQUEO TOTAL POR DEFECTO: Denegar cualquier acceso no autorizado o público
     match /{document=**} {
       allow read, write: if false;
     }

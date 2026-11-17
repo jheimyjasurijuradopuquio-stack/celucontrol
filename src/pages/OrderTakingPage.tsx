@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { DiningTable, Product, Category, OrderItem } from '../types';
+import { DiningTable, Product, Category, OrderItem, PaymentMethod, OrderMode } from '../types';
 import {
   subscribeProducts,
   subscribeCategories,
-  createKitchenTicket
+  createKitchenTicket,
+  createTakeoutOrder
 } from '../services/dbService';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -14,19 +15,23 @@ import {
   Send,
   Search,
   MessageSquare,
-  CheckCircle2
+  CheckCircle2,
+  ShoppingBag,
+  Utensils
 } from 'lucide-react';
 
 interface OrderTakingPageProps {
-  table: DiningTable;
+  table?: DiningTable | null;
   onBackToTables: () => void;
   onOrderSent: () => void;
+  initialMode?: OrderMode;
 }
 
 export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
   table,
   onBackToTables,
-  onOrderSent
+  onOrderSent,
+  initialMode = 'salon'
 }) => {
   const { user } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
@@ -34,6 +39,12 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('todos');
   const [searchQuery, setSearchQuery] = useState('');
   
+  // Modalidad: 'salon' o 'llevar'
+  const [mode, setMode] = useState<OrderMode>(initialMode || (table ? 'salon' : 'llevar'));
+  const [takeoutNumber, setTakeoutNumber] = useState<string>(() => `PL-${Math.floor(100 + Math.random() * 900)}`);
+  const [clienteNombre, setClienteNombre] = useState<string>('');
+  const [metodoPago, setMetodoPago] = useState<PaymentMethod>('efectivo');
+
   // Carrito de la comanda actual
   const [cartItems, setCartItems] = useState<OrderItem[]>([]);
   const [observacionesGenerales, setObservacionesGenerales] = useState('');
@@ -49,6 +60,14 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
       unsubCat();
     };
   }, []);
+
+  const handleSwitchMode = (newMode: OrderMode) => {
+    if (newMode === 'salon' && !table) {
+      alert('Para tomar pedidos en salón, por favor selecciona o abre una mesa desde el panel de mesas.');
+      return;
+    }
+    setMode(newMode);
+  };
 
   const handleAddToCart = (product: Product) => {
     setCartItems((prev) => {
@@ -103,19 +122,18 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
   // Cálculo total del carrito
   const cartSubtotal = cartItems.reduce((acc, item) => acc + item.subtotal, 0);
 
-  // Envío seguro a cocina con prevención de duplicados
+  // Envío de comanda en salón (flujo original intacto)
   const handleSendComanda = async () => {
     if (cartItems.length === 0) {
       alert('Agrega al menos un producto antes de enviar la comanda.');
       return;
     }
 
-    if (!table.atencionActivaId) {
+    if (!table || !table.atencionActivaId) {
       alert('Error: La mesa no tiene una atención activa vinculada.');
       return;
     }
 
-    // Bloqueo inmediato para evitar doble clic o múltiples peticiones concurrentes
     setIsSubmitting(true);
 
     try {
@@ -143,6 +161,42 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
     }
   };
 
+  // Envío de pedido para llevar (nueva modalidad integrada)
+  const handleSendTakeoutOrder = async () => {
+    if (cartItems.length === 0) {
+      alert('Agrega al menos un producto antes de registrar el pedido para llevar.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await createTakeoutOrder(
+        user?.id || 'mozo-01',
+        user?.displayName || 'Personal Pollería',
+        cartItems,
+        metodoPago,
+        clienteNombre,
+        observacionesGenerales,
+        takeoutNumber
+      );
+
+      setSuccessToast(`¡Pedido Para Llevar #${takeoutNumber} enviado a cocina exitosamente!`);
+      setCartItems([]);
+      setObservacionesGenerales('');
+      setClienteNombre('');
+      setTakeoutNumber(`PL-${Math.floor(100 + Math.random() * 900)}`);
+
+      setTimeout(() => {
+        onOrderSent();
+      }, 1400);
+    } catch (err: any) {
+      console.error(err);
+      alert('Error al registrar pedido para llevar: ' + err.message);
+      setIsSubmitting(false);
+    }
+  };
+
   // Filtros de productos
   const filteredProducts = products.filter((p) => {
     if (!p.disponible) return false;
@@ -154,8 +208,8 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
 
   return (
     <div>
-      {/* Barra superior de control */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      {/* Barra superior de control con Selector de Modalidad */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <button
           type="button"
           className="btn btn-secondary"
@@ -165,19 +219,70 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
           <ArrowLeft size={16} /> Volver a Mesas
         </button>
 
+        {/* SELECTOR DE MODALIDAD */}
+        <div style={{
+          display: 'inline-flex',
+          background: 'var(--color-cream-surface)',
+          padding: 4,
+          borderRadius: 30,
+          border: '1px solid var(--color-cream-border)',
+          gap: 4
+        }}>
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('salon')}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 24,
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.82rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: mode === 'salon' ? 'var(--color-green-primary)' : 'transparent',
+              color: mode === 'salon' ? 'white' : 'var(--color-gray-700)',
+              transition: 'all 0.2s'
+            }}
+          >
+            <Utensils size={14} /> EN SALÓN
+          </button>
+          <button
+            type="button"
+            onClick={() => handleSwitchMode('llevar')}
+            style={{
+              padding: '6px 16px',
+              borderRadius: 24,
+              border: 'none',
+              cursor: 'pointer',
+              fontWeight: 700,
+              fontSize: '0.82rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: mode === 'llevar' ? 'var(--color-orange-primary)' : 'transparent',
+              color: mode === 'llevar' ? 'white' : 'var(--color-gray-700)',
+              transition: 'all 0.2s'
+            }}
+          >
+            <ShoppingBag size={14} /> PARA LLEVAR
+          </button>
+        </div>
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{
-            background: 'var(--color-green-primary)',
+            background: mode === 'llevar' ? 'var(--color-orange-primary)' : 'var(--color-green-primary)',
             color: 'white',
             padding: '6px 14px',
             borderRadius: 20,
             fontSize: '0.85rem',
             fontWeight: 800
           }}>
-            TOMA DE PEDIDO · MESA {table.numero}
+            {mode === 'llevar' ? `PEDIDO PARA LLEVAR · #${takeoutNumber}` : `TOMA DE PEDIDO · MESA ${table?.numero || '-'}`}
           </div>
           <span style={{ fontSize: '0.8rem', color: 'var(--color-gray-600)' }}>
-            Mozo: <strong>{table.mozoNombre || user?.displayName}</strong>
+            Mozo: <strong>{user?.displayName || table?.mozoNombre || 'Salón'}</strong>
           </span>
         </div>
       </div>
@@ -282,13 +387,34 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
 
         {/* Panel de Comanda / Carrito */}
         <aside className="cart-panel">
-          <div className="cart-header">
+          <div className="cart-header" style={{
+            background: mode === 'llevar' ? 'linear-gradient(135deg, var(--color-orange-primary), #ea580c)' : 'var(--color-green-deep)'
+          }}>
             <div>
-              <h3>Comanda en Mesa {table.numero}</h3>
-              <small style={{ color: '#a3c4b0' }}>Nuevos ítems a enviar</small>
+              <h3>{mode === 'llevar' ? `Para Llevar #${takeoutNumber}` : `Comanda en Mesa ${table?.numero || '-'}`}</h3>
+              <small style={{ color: mode === 'llevar' ? '#ffedd5' : '#a3c4b0' }}>
+                {mode === 'llevar' ? 'Pedido para llevar a cocina' : 'Nuevos ítems a enviar'}
+              </small>
             </div>
             <span>{cartItems.reduce((acc, i) => acc + i.cantidad, 0)} platos</span>
           </div>
+
+          {/* Nombre de cliente opcional para pedidos para llevar */}
+          {mode === 'llevar' && (
+            <div style={{ padding: '12px 16px', background: 'var(--color-cream-surface)', borderBottom: '1px solid var(--color-cream-border)' }}>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-gray-700)', display: 'block', marginBottom: 4 }}>
+                Nombre del Cliente (Opcional)
+              </label>
+              <input
+                type="text"
+                className="input-field"
+                placeholder="Ej. Juan Pérez / Cliente To-Go"
+                value={clienteNombre}
+                onChange={(e) => setClienteNombre(e.target.value)}
+                style={{ marginTop: 0, padding: '6px 10px', fontSize: '0.82rem' }}
+              />
+            </div>
+          )}
 
           <div className="cart-items-list">
             {cartItems.length === 0 ? (
@@ -358,15 +484,46 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
               <input
                 type="text"
                 className="input-field"
-                placeholder="Ej. Mesa rápida / cliente con prisa"
+                placeholder="Ej. Envolver bien / salsas extra"
                 value={observacionesGenerales}
                 onChange={(e) => setObservacionesGenerales(e.target.value)}
                 style={{ fontSize: '0.78rem', padding: '6px 10px', marginTop: 4 }}
               />
             </div>
 
+            {/* Selector de método de pago exclusivo para PARA LLEVAR */}
+            {mode === 'llevar' && (
+              <div style={{ marginBottom: 12 }}>
+                <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-gray-700)', display: 'block', marginBottom: 6 }}>
+                  Método de Pago
+                </label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6 }}>
+                  {(['efectivo', 'tarjeta', 'yape', 'plin'] as PaymentMethod[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setMetodoPago(m)}
+                      style={{
+                        padding: '6px 2px',
+                        borderRadius: 'var(--radius-sm)',
+                        border: metodoPago === m ? '2px solid var(--color-orange-primary)' : '1px solid var(--color-gray-300)',
+                        background: metodoPago === m ? 'var(--color-orange-light)' : 'white',
+                        color: metodoPago === m ? 'var(--color-orange-primary)' : 'var(--color-gray-700)',
+                        fontWeight: 700,
+                        fontSize: '0.72rem',
+                        cursor: 'pointer',
+                        textAlign: 'center'
+                      }}
+                    >
+                      {m === 'efectivo' ? '💵 Efectivo' : m === 'tarjeta' ? '💳 Tarjeta' : m === 'yape' ? '📱 Yape' : '📲 Plin'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="cart-total-line">
-              <span>Subtotal Comanda:</span>
+              <span>{mode === 'llevar' ? 'Total a Pagar:' : 'Subtotal Comanda:'}</span>
               <span>S/ {cartSubtotal.toFixed(2)}</span>
             </div>
 
@@ -374,11 +531,15 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
               type="button"
               className="btn btn-primary"
               style={{ width: '100%', padding: '14px', fontSize: '1rem', fontWeight: 800 }}
-              onClick={handleSendComanda}
+              onClick={mode === 'llevar' ? handleSendTakeoutOrder : handleSendComanda}
               disabled={isSubmitting || cartItems.length === 0}
             >
               <Send size={18} />
-              {isSubmitting ? 'Enviando a cocina...' : 'ENVIAR COMANDA A COCINA'}
+              {isSubmitting
+                ? 'Registrando pedido...'
+                : mode === 'llevar'
+                ? `REGISTRAR PEDIDO · S/ ${cartSubtotal.toFixed(2)}`
+                : 'ENVIAR COMANDA A COCINA'}
             </button>
           </div>
         </aside>

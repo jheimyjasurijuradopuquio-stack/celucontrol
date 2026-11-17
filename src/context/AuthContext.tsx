@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { AppUser, UserRole } from '../types';
-import { auth, db } from '../firebase';
+import { auth, db } from '../firebase.ts';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
