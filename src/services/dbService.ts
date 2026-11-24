@@ -402,14 +402,22 @@ export const registerPaymentAndCloseTable = async (
 
   const batch = writeBatch(db);
 
-  // 2. Crear documento de pago
+  // 2. Crear documento de pago (omitiendo estrictamente cualquier campo undefined para proteger WriteBatch.set)
   const pagosRef = doc(collection(db, 'pagos'));
-  const recibo: Omit<PaymentReceipt, 'id'> = {
+  const rawRecibo: Record<string, any> = {
     ...pago,
     atencionId,
     mesaNumero,
     fechaPago: serverTimestamp()
   };
+
+  const recibo: Record<string, any> = {};
+  for (const [key, value] of Object.entries(rawRecibo)) {
+    if (value !== undefined) {
+      recibo[key] = value;
+    }
+  }
+
   batch.set(pagosRef, recibo);
 
   // 3. Cerrar atención de forma definitiva

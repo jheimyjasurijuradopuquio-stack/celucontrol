@@ -5,7 +5,8 @@ import {
   KitchenTicket,
   PaymentMethod,
   InvoiceType,
-  OrderItem
+  OrderItem,
+  PaymentReceipt
 } from '../types';
 import {
   subscribeTables,
@@ -204,25 +205,30 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         ? (attention.clienteNombre || 'Cliente Para Llevar')
         : 'Público General';
 
+      // Obtener el código o número de pedido si existe (en atención o comandas)
+      const codigoPedido = attention.numeroPedido?.trim() || (tickets.find(t => t.numeroPedido)?.numeroPedido?.trim()) || null;
+
+      const pagoPayload: Omit<PaymentReceipt, 'id' | 'atencionId' | 'mesaNumero' | 'fechaPago'> = {
+        subtotal,
+        igv,
+        total,
+        metodoPago,
+        montoRecibido: metodoPago === 'efectivo' ? numRecibido : total,
+        vuelto: metodoPago === 'efectivo' ? vuelto : 0,
+        tipoComprobante,
+        clienteNombre: clienteNombre.trim() || fallbackClienteNombre,
+        clienteDocumento: clienteDocumento.trim() || '00000000',
+        cajeroId: user?.id || 'caja-01',
+        cajeroNombre: user?.displayName || 'Caja Pollería',
+        tipo: activeTab,
+        ...(codigoPedido ? { numeroPedido: codigoPedido } : {})
+      };
+
       const receiptId = await registerPaymentAndCloseTable(
         attention.id,
         mesaId,
         mesaNumero,
-        {
-          subtotal,
-          igv,
-          total,
-          metodoPago,
-          montoRecibido: metodoPago === 'efectivo' ? numRecibido : total,
-          vuelto: metodoPago === 'efectivo' ? vuelto : 0,
-          tipoComprobante,
-          clienteNombre: clienteNombre.trim() || fallbackClienteNombre,
-          clienteDocumento: clienteDocumento.trim() || '00000000',
-          cajeroId: user?.id || 'caja-01',
-          cajeroNombre: user?.displayName || 'Caja Pollería',
-          tipo: activeTab,
-          numeroPedido: attention.numeroPedido || undefined
-        }
+        pagoPayload
       );
 
       setSuccessReceiptId(receiptId);
