@@ -28,6 +28,42 @@ import {
 } from '../types';
 
 // ==========================================
+// UTILIDADES DE SANITIZACIÓN PARA FIRESTORE
+// ==========================================
+
+/**
+ * Sanitiza recursivamente cualquier estructura de datos para Firestore,
+ * eliminando claves con valor undefined en cualquier nivel de anidamiento,
+ * preservando tipos especiales como Date, Timestamp y FieldValue (ej. serverTimestamp()).
+ */
+export function sanitizeFirestoreData<T>(data: T): T {
+  if (data === null || data === undefined) {
+    return data;
+  }
+  if (Array.isArray(data)) {
+    return data
+      .map(item => sanitizeFirestoreData(item))
+      .filter(item => item !== undefined) as unknown as T;
+  }
+  if (typeof data === 'object') {
+    const isPlain =
+      Object.prototype.toString.call(data) === '[object Object]' &&
+      (data.constructor === Object || !data.constructor);
+    if (!isPlain) {
+      return data;
+    }
+    const clean: Record<string, any> = {};
+    for (const [key, val] of Object.entries(data as Record<string, any>)) {
+      if (val !== undefined) {
+        clean[key] = sanitizeFirestoreData(val);
+      }
+    }
+    return clean as T;
+  }
+  return data;
+}
+
+// ==========================================
 // 1. GESTIÓN DE MESAS
 // ==========================================
 
@@ -402,7 +438,7 @@ export const registerPaymentAndCloseTable = async (
 
   const batch = writeBatch(db);
 
-  // 2. Crear documento de pago (omitiendo estrictamente cualquier campo undefined para proteger WriteBatch.set)
+  // 2. Crear documento de pago sanitizado recursivamente (protección total contra valores undefined en WriteBatch.set)
   const pagosRef = doc(collection(db, 'pagos'));
   const rawRecibo: Record<string, any> = {
     ...pago,
@@ -411,12 +447,7 @@ export const registerPaymentAndCloseTable = async (
     fechaPago: serverTimestamp()
   };
 
-  const recibo: Record<string, any> = {};
-  for (const [key, value] of Object.entries(rawRecibo)) {
-    if (value !== undefined) {
-      recibo[key] = value;
-    }
-  }
+  const recibo = sanitizeFirestoreData(rawRecibo);
 
   batch.set(pagosRef, recibo);
 
