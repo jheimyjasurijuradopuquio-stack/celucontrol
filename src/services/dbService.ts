@@ -29,6 +29,7 @@ import {
 
 // ==========================================
 // UTILIDADES DE SANITIZACIÓN PARA FIRESTORE
+// Blindaje de seguridad contra campos undefined
 // ==========================================
 
 /**

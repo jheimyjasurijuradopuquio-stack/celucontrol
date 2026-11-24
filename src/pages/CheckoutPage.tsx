@@ -206,6 +206,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
         : 'Público General';
 
       // Obtener el código o número de pedido si existe (en atención o comandas)
+      // Omitir campo si es salón o null para garantizar compatibilidad con WriteBatch.set de Firestore
       const codigoPedido = attention.numeroPedido?.trim() || (tickets.find(t => t.numeroPedido)?.numeroPedido?.trim()) || null;
 
       const pagoPayload: Omit<PaymentReceipt, 'id' | 'atencionId' | 'mesaNumero' | 'fechaPago'> = {
