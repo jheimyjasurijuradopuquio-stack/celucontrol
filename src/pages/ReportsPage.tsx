@@ -84,7 +84,7 @@ export const ReportsPage: React.FC = () => {
           </div>
           <div>
             <h3 style={{ color: '#92400e' }}>S/ {ticketPromedio.toFixed(2)}</h3>
-            <p>Ticket Promedio por Mesa</p>
+            <p>Ticket Promedio General</p>
           </div>
         </div>
       </div>
@@ -169,7 +169,22 @@ export const ReportsPage: React.FC = () => {
                     </span>
                   </td>
                   <td style={{ padding: '12px 20px', fontWeight: 700 }}>
-                    Mesa {p.mesaNumero}
+                    {p.mesaNumero > 0 ? (
+                      `Mesa ${p.mesaNumero}`
+                    ) : (
+                      <span style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        background: '#ffedd5',
+                        color: '#c2410c',
+                        padding: '3px 8px',
+                        borderRadius: 12,
+                        fontSize: '0.78rem'
+                      }}>
+                        🛍️ Para Llevar {p.numeroPedido ? `(${p.numeroPedido})` : ''}
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: '12px 20px' }}>
                     <div>{p.clienteNombre || 'Público General'}</div>

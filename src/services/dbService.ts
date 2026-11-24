@@ -84,6 +84,45 @@ export const openTableAttention = async (
   return docRef.id;
 };
 
+export const cancelTableAttention = async (
+  mesaId: string,
+  atencionId: string
+): Promise<void> => {
+  // 1. Verificar si existen comandas para esta atención
+  const q = query(
+    collection(db, 'comandas'),
+    where('atencionId', '==', atencionId)
+  );
+  const snapshot = await getDocs(q);
+
+  if (!snapshot.empty) {
+    throw new Error(
+      'No se puede cancelar una atención que ya tiene comandas registradas o enviadas a cocina. La cuenta debe ser liquidada en Caja.'
+    );
+  }
+
+  // 2. Liberar mesa y cancelar atención en una sola operación atómica (batch)
+  const batch = writeBatch(db);
+
+  const atencionRef = doc(db, 'atenciones', atencionId);
+  batch.update(atencionRef, {
+    estado: 'cancelada',
+    fechaCierre: serverTimestamp()
+  });
+
+  const mesaRef = doc(db, 'mesas', mesaId);
+  batch.update(mesaRef, {
+    estado: 'libre',
+    mozoId: null,
+    mozoNombre: null,
+    comensales: null,
+    atencionActivaId: null,
+    ultimaActualizacion: serverTimestamp()
+  });
+
+  await batch.commit();
+};
+
 // ==========================================
 // 2. GESTIÓN DE COMANDAS (COCINA Y SALÓN)
 // ==========================================
@@ -168,31 +207,31 @@ export const createTakeoutOrder = async (
   const igv = +(subtotalItems - subtotalGravado).toFixed(2);
   const codigoPedido = numeroPedido || `PL-${Math.floor(100 + Math.random() * 900)}`;
 
-  // 1. Crear documento en 'atenciones'
-  const atencionesRef = collection(db, 'atenciones');
-  const atencionDoc = await addDoc(atencionesRef, {
+  // 1 y 2. Crear atencion y comanda en una sola operación atómica (batch)
+  const batch = writeBatch(db);
+  const atencionRef = doc(collection(db, 'atenciones'));
+  const comandaRef = doc(collection(db, 'comandas'));
+
+  batch.set(atencionRef, {
     mesaId: 'llevar',
     mesaNumero: 0,
     mozoId,
     mozoNombre,
     comensales: 1,
-    estado: 'cerrada',
+    estado: 'abierta',
     tipo: 'llevar',
     numeroPedido: codigoPedido,
     clienteNombre: clienteNombre?.trim() || 'Cliente Para Llevar',
-    comandasIds: [],
+    comandasIds: [comandaRef.id],
     totalAcumulado: subtotalItems,
     subtotal: subtotalGravado,
     igv,
     metodoPago,
-    fechaApertura: serverTimestamp(),
-    fechaCierre: serverTimestamp()
+    fechaApertura: serverTimestamp()
   });
 
-  // 2. Crear documento en 'comandas' para cocina
-  const comandasRef = collection(db, 'comandas');
-  const comandaDoc = await addDoc(comandasRef, {
-    atencionId: atencionDoc.id,
+  batch.set(comandaRef, {
+    atencionId: atencionRef.id,
     mesaId: 'llevar',
     mesaNumero: 0,
     numeroComanda: 1,
@@ -210,36 +249,33 @@ export const createTakeoutOrder = async (
     actualizadaEn: serverTimestamp()
   });
 
-  // Actualizar atención con comandaId
-  await updateDoc(doc(db, 'atenciones', atencionDoc.id), {
-    comandasIds: [comandaDoc.id]
-  });
+  await batch.commit();
 
-  // 3. Registrar en 'pagos' si el usuario tiene permisos (cajero/admin)
-  try {
-    const pagosRef = doc(collection(db, 'pagos'));
-    await setDoc(pagosRef, {
-      atencionId: atencionDoc.id,
-      mesaNumero: 0,
-      tipo: 'llevar',
-      numeroPedido: codigoPedido,
-      subtotal: subtotalGravado,
-      igv,
-      total: subtotalItems,
-      metodoPago,
-      montoRecibido: subtotalItems,
-      vuelto: 0,
-      tipoComprobante: 'ticket',
-      clienteNombre: clienteNombre?.trim() || 'Cliente Para Llevar',
-      cajeroId: mozoId,
-      cajeroNombre: mozoNombre,
-      fechaPago: serverTimestamp()
+  return { comandaId: comandaRef.id, atencionId: atencionRef.id };
+};
+
+export const subscribeOpenTakeoutOrders = (
+  callback: (orders: TableAttention[]) => void
+) => {
+  const atencionesRef = collection(db, 'atenciones');
+  const q = query(atencionesRef, where('tipo', '==', 'llevar'));
+  return onSnapshot(q, (snapshot) => {
+    const orders: TableAttention[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data() as Omit<TableAttention, 'id'>;
+      if (data.estado === 'abierta') {
+        orders.push({ id: docSnap.id, ...data });
+      }
     });
-  } catch (pagoErr) {
-    console.info('Registro opcional en /pagos para pedido para llevar:', pagoErr);
-  }
-
-  return { comandaId: comandaDoc.id, atencionId: atencionDoc.id };
+    orders.sort((a, b) => {
+      const timeA = a.fechaApertura?.toMillis ? a.fechaApertura.toMillis() : (a.fechaApertura?.seconds ? a.fechaApertura.seconds * 1000 : new Date(a.fechaApertura || 0).getTime());
+      const timeB = b.fechaApertura?.toMillis ? b.fechaApertura.toMillis() : (b.fechaApertura?.seconds ? b.fechaApertura.seconds * 1000 : new Date(b.fechaApertura || 0).getTime());
+      return timeB - timeA;
+    });
+    callback(orders);
+  }, (err) => {
+    console.error('Error al escuchar pedidos para llevar abiertos:', err);
+  });
 };
 
 export const subscribeKitchenTickets = (
@@ -352,9 +388,21 @@ export const registerPaymentAndCloseTable = async (
   mesaNumero: number,
   pago: Omit<PaymentReceipt, 'id' | 'atencionId' | 'mesaNumero' | 'fechaPago'>
 ): Promise<string> => {
+  // 1. Validar que la atención existe y sigue abierta (evitar doble cobro por concurrencia o doble clic)
+  const atencionRef = doc(db, 'atenciones', atencionId);
+  const atencionSnap = await getDoc(atencionRef);
+  if (!atencionSnap.exists()) {
+    throw new Error('La atención solicitada no existe.');
+  }
+
+  const atencionData = atencionSnap.data() as TableAttention;
+  if (atencionData.estado !== 'abierta') {
+    throw new Error('Esta atención ya ha sido cobrada o cerrada previamente.');
+  }
+
   const batch = writeBatch(db);
 
-  // 1. Crear documento de pago
+  // 2. Crear documento de pago
   const pagosRef = doc(collection(db, 'pagos'));
   const recibo: Omit<PaymentReceipt, 'id'> = {
     ...pago,
@@ -364,24 +412,25 @@ export const registerPaymentAndCloseTable = async (
   };
   batch.set(pagosRef, recibo);
 
-  // 2. Cerrar atención
-  const atencionRef = doc(db, 'atenciones', atencionId);
+  // 3. Cerrar atención de forma definitiva
   batch.update(atencionRef, {
     estado: 'cerrada',
     metodoPago: pago.metodoPago,
     fechaCierre: serverTimestamp()
   });
 
-  // 3. Liberar mesa
-  const mesaRef = doc(db, 'mesas', mesaId);
-  batch.update(mesaRef, {
-    estado: 'libre',
-    mozoId: null,
-    mozoNombre: null,
-    comensales: null,
-    atencionActivaId: null,
-    ultimaActualizacion: serverTimestamp()
-  });
+  // 4. Liberar mesa física únicamente si es atención en salón con mesa real
+  if (mesaId && mesaId !== 'llevar' && mesaNumero > 0) {
+    const mesaRef = doc(db, 'mesas', mesaId);
+    batch.update(mesaRef, {
+      estado: 'libre',
+      mozoId: null,
+      mozoNombre: null,
+      comensales: null,
+      atencionActivaId: null,
+      ultimaActualizacion: serverTimestamp()
+    });
+  }
 
   await batch.commit();
   return pagosRef.id;

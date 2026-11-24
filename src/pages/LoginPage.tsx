@@ -4,17 +4,11 @@ import { UserRole } from '../types';
 import {
   Lock,
   Mail,
-  UserCheck,
-  AlertCircle,
-  ChefHat,
-  UtensilsCrossed,
-  Receipt,
-  ShieldCheck,
-  Sparkles
+  AlertCircle
 } from 'lucide-react';
 
 export const LoginPage: React.FC = () => {
-  const { loginWithEmail, loginAsRole, authError, isAuthConfigured, clearAuthError } = useAuth();
+  const { loginWithEmail, authError, clearAuthError } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegistering, setIsRegistering] = useState(false);
@@ -36,17 +30,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickRoleLogin = async (role: UserRole) => {
-    setLoading(true);
-    try {
-      await loginAsRole(role);
-    } catch (err) {
-      // Error manejado en AuthContext
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div style={{
       minHeight: '100vh',
@@ -59,13 +42,13 @@ export const LoginPage: React.FC = () => {
       <div style={{
         background: 'white',
         borderRadius: 'var(--radius-xl)',
-        maxWidth: 480,
+        maxWidth: 440,
         width: '100%',
         padding: 36,
         boxShadow: 'var(--shadow-lg)',
         border: '1px solid var(--color-cream-border)'
       }}>
-        {/* Encabezado */}
+        {/* Encabezado Don Brasa */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
           <div style={{
             width: 56,
@@ -89,7 +72,7 @@ export const LoginPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Alerta de Error o Configuración de Firebase Auth */}
+        {/* Alerta de Error de Firebase Auth */}
         {authError && (
           <div style={{
             background: '#fee2e2',
@@ -108,111 +91,13 @@ export const LoginPage: React.FC = () => {
           </div>
         )}
 
-        {/* Acceso Rápido por Roles de Firebase Auth */}
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-gray-600)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 10, textAlign: 'center' }}>
-            Acceso Rápido por Rol (Firebase Auth Real)
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
-            <button
-              type="button"
-              className="btn"
-              onClick={() => handleQuickRoleLogin('admin')}
-              disabled={loading}
-              style={{
-                background: '#f5f3ff',
-                color: '#6d28d9',
-                border: '1px solid #ddd6fe',
-                fontSize: '0.82rem',
-                padding: '12px 10px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4
-              }}
-            >
-              <ShieldCheck size={18} />
-              <strong>Administrador</strong>
-              <small style={{ fontSize: '0.68rem', color: '#8b5cf6' }}>admin@donbrasa.pe</small>
-            </button>
-
-            <button
-              type="button"
-              className="btn"
-              onClick={() => handleQuickRoleLogin('mozo')}
-              disabled={loading}
-              style={{
-                background: '#ecfdf5',
-                color: '#047857',
-                border: '1px solid #a7f3d0',
-                fontSize: '0.82rem',
-                padding: '12px 10px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4
-              }}
-            >
-              <UtensilsCrossed size={18} />
-              <strong>Mozo Salón</strong>
-              <small style={{ fontSize: '0.68rem', color: '#10b981' }}>mozo@donbrasa.pe</small>
-            </button>
-
-            <button
-              type="button"
-              className="btn"
-              onClick={() => handleQuickRoleLogin('cocina')}
-              disabled={loading}
-              style={{
-                background: '#fffbeb',
-                color: '#b45309',
-                border: '1px solid #fde68a',
-                fontSize: '0.82rem',
-                padding: '12px 10px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4
-              }}
-            >
-              <ChefHat size={18} />
-              <strong>Cocina & Brasas</strong>
-              <small style={{ fontSize: '0.68rem', color: '#f59e0b' }}>cocina@donbrasa.pe</small>
-            </button>
-
-            <button
-              type="button"
-              className="btn"
-              onClick={() => handleQuickRoleLogin('cajero')}
-              disabled={loading}
-              style={{
-                background: '#fdf2f8',
-                color: '#be185d',
-                border: '1px solid #fbcfe8',
-                fontSize: '0.82rem',
-                padding: '12px 10px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 4
-              }}
-            >
-              <Receipt size={18} />
-              <strong>Cajero / Liquidación</strong>
-              <small style={{ fontSize: '0.68rem', color: '#ec4899' }}>caja@donbrasa.pe</small>
-            </button>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0' }}>
-          <div style={{ flex: 1, height: 1, background: 'var(--color-gray-200)' }}></div>
-          <span style={{ fontSize: '0.75rem', color: 'var(--color-gray-500)', textTransform: 'uppercase' }}>O con tu correo</span>
-          <div style={{ flex: 1, height: 1, background: 'var(--color-gray-200)' }}></div>
-        </div>
-
-        {/* Formulario Manual de Correo y Contraseña */}
+        {/* Formulario de Correo y Contraseña */}
         <form onSubmit={handleSubmit}>
           {isRegistering && (
             <>
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-gray-700)' }}>
-                  Nombre Completo
+                  Nombre Completo del Trabajador
                 </label>
                 <input
                   type="text"
@@ -226,7 +111,7 @@ export const LoginPage: React.FC = () => {
 
               <div style={{ marginBottom: 12 }}>
                 <label style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--color-gray-700)' }}>
-                  Rol Asignado en Pollería
+                  Rol de Trabajo en Pollería
                 </label>
                 <select
                   className="input-field"
@@ -238,7 +123,7 @@ export const LoginPage: React.FC = () => {
                   <option value="cajero">Cajero (Cuentas y cobro)</option>
                 </select>
                 <small style={{ fontSize: '0.7rem', color: 'var(--color-gray-500)', display: 'block', marginTop: 4 }}>
-                  🔒 El rol de Administrador no es de libre registro; se asigna por gerencia.
+                  🔒 El rol de Administrador no es de libre asignación; se otorga únicamente por gerencia.
                 </small>
               </div>
             </>
@@ -278,10 +163,10 @@ export const LoginPage: React.FC = () => {
             style={{ width: '100%', padding: '14px', fontSize: '0.95rem', fontWeight: 800 }}
             disabled={loading}
           >
-            {loading ? 'Autenticando en Firebase...' : isRegistering ? 'Crear Cuenta y Acceder' : 'Iniciar Sesión'}
+            {loading ? 'Verificando credenciales...' : isRegistering ? 'Crear Cuenta y Acceder' : 'Ingresar al Sistema'}
           </button>
 
-          <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <div style={{ textAlign: 'center', marginTop: 18 }}>
             <button
               type="button"
               onClick={() => {
@@ -298,7 +183,7 @@ export const LoginPage: React.FC = () => {
                 textDecoration: 'underline'
               }}
             >
-              {isRegistering ? '¿Ya tienes cuenta? Inicia sesión aquí' : '¿No tienes cuenta? Regístrate aquí'}
+              {isRegistering ? '¿Ya tienes una cuenta registrada? Inicia sesión aquí' : '¿Nuevo trabajador? Regístrate aquí'}
             </button>
           </div>
         </form>

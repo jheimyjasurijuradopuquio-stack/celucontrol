@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { DiningTable, TableStatus } from '../types';
-import { subscribeTables, openTableAttention, seedInitialPolleriaData } from '../services/dbService';
+import { subscribeTables, openTableAttention, seedInitialPolleriaData, subscribeOpenTakeoutOrders } from '../services/dbService';
 import { useAuth } from '../context/AuthContext';
 import {
   Users,
@@ -36,6 +36,7 @@ export const TablesPage: React.FC<TablesPageProps> = ({
   const [mozoNombre, setMozoNombre] = useState<string>(user?.displayName || 'Mozo Salón');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [takeoutOrdersCount, setTakeoutOrdersCount] = useState<number>(0);
 
   useEffect(() => {
     const unsubscribe = subscribeTables((updatedTables) => {
@@ -43,7 +44,14 @@ export const TablesPage: React.FC<TablesPageProps> = ({
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    const unsubTakeout = subscribeOpenTakeoutOrders((orders) => {
+      setTakeoutOrdersCount(orders.length);
+    });
+
+    return () => {
+      unsubscribe();
+      unsubTakeout();
+    };
   }, []);
 
   const handleOpenModal = (table: DiningTable) => {
@@ -125,9 +133,22 @@ export const TablesPage: React.FC<TablesPageProps> = ({
             type="button"
             className="btn btn-primary"
             onClick={onTakeoutOrder}
-            style={{ fontSize: '0.85rem', padding: '8px 16px' }}
+            style={{ fontSize: '0.85rem', padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 8 }}
           >
-            <ShoppingBag size={16} /> Nuevo Pedido Para Llevar
+            <ShoppingBag size={16} />
+            <span>Nuevo Pedido Para Llevar</span>
+            {takeoutOrdersCount > 0 && (
+              <span style={{
+                background: 'rgba(255,255,255,0.35)',
+                color: 'white',
+                padding: '2px 8px',
+                borderRadius: 12,
+                fontSize: '0.75rem',
+                fontWeight: 800
+              }}>
+                {takeoutOrdersCount} por cobrar
+              </span>
+            )}
           </button>
         )}
       </div>

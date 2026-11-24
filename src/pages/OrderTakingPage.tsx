@@ -4,7 +4,9 @@ import {
   subscribeProducts,
   subscribeCategories,
   createKitchenTicket,
-  createTakeoutOrder
+  createTakeoutOrder,
+  cancelTableAttention,
+  getTicketsForAttention
 } from '../services/dbService';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -23,7 +25,7 @@ import {
 interface OrderTakingPageProps {
   table?: DiningTable | null;
   onBackToTables: () => void;
-  onOrderSent: () => void;
+  onOrderSent: (atencionId?: string) => void;
   initialMode?: OrderMode;
 }
 
@@ -61,12 +63,58 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
     };
   }, []);
 
-  const handleSwitchMode = (newMode: OrderMode) => {
+  const handleSwitchMode = async (newMode: OrderMode) => {
+    if (newMode === mode) return;
+
     if (newMode === 'salon' && !table) {
       alert('Para tomar pedidos en salón, por favor selecciona o abre una mesa desde el panel de mesas.');
       return;
     }
-    setMode(newMode);
+
+    if (newMode === 'llevar' && table && table.atencionActivaId) {
+      try {
+        const existingTickets = await getTicketsForAttention(table.atencionActivaId);
+        if (existingTickets.length > 0) {
+          alert(`La Mesa ${table.numero} ya tiene ${existingTickets.length} comanda(s) activas y consumo registrado en salón. No se puede cambiar a Para Llevar. Debes cobrar la cuenta de la mesa en Caja antes de iniciar otra atención.`);
+          return;
+        }
+
+        const confirmCancel = window.confirm(
+          `La Mesa ${table.numero} fue abierta pero aún no tiene pedidos enviados a cocina.\n\n¿Deseas cancelar la apertura de la Mesa ${table.numero}, liberarla y continuar en modalidad PARA LLEVAR?`
+        );
+
+        if (!confirmCancel) {
+          return;
+        }
+
+        await cancelTableAttention(table.id, table.atencionActivaId);
+        setMode('llevar');
+      } catch (err: any) {
+        alert('Error al verificar atención de la mesa: ' + err.message);
+        return;
+      }
+    } else {
+      setMode(newMode);
+    }
+  };
+
+  const handleBack = async () => {
+    if (mode === 'salon' && table && table.atencionActivaId && cartItems.length === 0) {
+      try {
+        const existingTickets = await getTicketsForAttention(table.atencionActivaId);
+        if (existingTickets.length === 0) {
+          const wantToCancel = window.confirm(
+            `La Mesa ${table.numero} fue abierta pero no tiene ningún pedido enviado a cocina.\n\n¿Deseas cancelar la apertura y dejar la mesa libre en el salón?`
+          );
+          if (wantToCancel) {
+            await cancelTableAttention(table.id, table.atencionActivaId);
+          }
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    onBackToTables();
   };
 
   const handleAddToCart = (product: Product) => {
@@ -161,7 +209,8 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
     }
   };
 
-  // Envío de pedido para llevar (nueva modalidad integrada)
+ 
+  // Envío de pedido para llevar
   const handleSendTakeoutOrder = async () => {
     if (cartItems.length === 0) {
       alert('Agrega al menos un producto antes de registrar el pedido para llevar.');
@@ -171,7 +220,19 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
     setIsSubmitting(true);
 
     try {
-      await createTakeoutOrder(
+      // Si la mesa física fue abierta previamente pero no tiene comandas, liberarla de forma segura
+      if (table && table.atencionActivaId) {
+        try {
+          const tickets = await getTicketsForAttention(table.atencionActivaId);
+          if (tickets.length === 0) {
+            await cancelTableAttention(table.id, table.atencionActivaId);
+          }
+        } catch (checkErr) {
+          console.warn('Nota al verificar mesa previa:', checkErr);
+        }
+      }
+
+      const resultado = await createTakeoutOrder(
         user?.id || 'mozo-01',
         user?.displayName || 'Personal Pollería',
         cartItems,
@@ -188,7 +249,7 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
       setTakeoutNumber(`PL-${Math.floor(100 + Math.random() * 900)}`);
 
       setTimeout(() => {
-        onOrderSent();
+        onOrderSent(resultado.atencionId);
       }, 1400);
     } catch (err: any) {
       console.error(err);
@@ -196,6 +257,7 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
       setIsSubmitting(false);
     }
   };
+
 
   // Filtros de productos
   const filteredProducts = products.filter((p) => {
@@ -213,7 +275,7 @@ export const OrderTakingPage: React.FC<OrderTakingPageProps> = ({
         <button
           type="button"
           className="btn btn-secondary"
-          onClick={onBackToTables}
+          onClick={handleBack}
           style={{ fontSize: '0.85rem' }}
         >
           <ArrowLeft size={16} /> Volver a Mesas

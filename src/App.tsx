@@ -9,15 +9,39 @@ import { KitchenPage } from './pages/KitchenPage';
 import { CheckoutPage } from './pages/CheckoutPage';
 import { MenuManagementPage } from './pages/MenuManagementPage';
 import { ReportsPage } from './pages/ReportsPage';
-import { DiningTable, KitchenTicket } from './types';
+import { DiningTable, KitchenTicket, UserRole } from './types';
 import { subscribeKitchenTickets } from './services/dbService';
+
+const isViewAllowedForRole = (view: string, role?: UserRole): boolean => {
+  if (!role) return false;
+  if (role === 'admin') return true;
+  if (role === 'cajero') return ['caja', 'mesas', 'order-taking', 'cocina'].includes(view);
+  if (role === 'mozo') return ['mesas', 'order-taking', 'cocina'].includes(view);
+  if (role === 'cocina') return ['cocina'].includes(view);
+  return false;
+};
+
+const getDefaultViewForRole = (role?: UserRole): string => {
+  if (role === 'cocina') return 'cocina';
+  if (role === 'cajero') return 'caja';
+  return 'mesas';
+};
 
 const MainDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [currentView, setCurrentView] = useState<string>('mesas');
+  const [currentView, setCurrentView] = useState<string>(() => getDefaultViewForRole(user?.role));
   const [selectedTable, setSelectedTable] = useState<DiningTable | null>(null);
   const [initialOrderMode, setInitialOrderMode] = useState<'salon' | 'llevar'>('salon');
   const [pendingKitchenCount, setPendingKitchenCount] = useState<number>(0);
+
+  // Sincronizar vista permitida cuando cambia el rol del usuario
+  useEffect(() => {
+    if (user?.role) {
+      if (!isViewAllowedForRole(currentView, user.role)) {
+        setCurrentView(getDefaultViewForRole(user.role));
+      }
+    }
+  }, [user?.role]);
 
   // Escuchar comandas en cocina para mostrar badge en el menú
   useEffect(() => {
@@ -43,13 +67,30 @@ const MainDashboard: React.FC = () => {
   };
 
   const handleSelectTableForCheckout = (table: DiningTable) => {
-    setSelectedTable(table);
-    setCurrentView('caja');
+    if (user?.role === 'cajero' || user?.role === 'admin') {
+      setSelectedTable(table);
+      setCurrentView('caja');
+    } else {
+      alert('La liquidación y cobro de cuentas está restringida al rol de Cajero o Administrador.');
+    }
   };
 
   const handleBackToTables = () => {
     setSelectedTable(null);
-    setCurrentView('mesas');
+    if (isViewAllowedForRole('mesas', user?.role)) {
+      setCurrentView('mesas');
+    } else {
+      setCurrentView(getDefaultViewForRole(user?.role));
+    }
+  };
+
+  const handleOrderSent = () => {
+    setSelectedTable(null);
+    if (user?.role === 'cajero') {
+      setCurrentView('caja');
+    } else {
+      setCurrentView('mesas');
+    }
   };
 
   // Títulos contextuales
@@ -82,8 +123,10 @@ const MainDashboard: React.FC = () => {
       <Sidebar
         currentView={currentView}
         onNavigate={(view) => {
-          setSelectedTable(null);
-          setCurrentView(view);
+          if (isViewAllowedForRole(view, user?.role)) {
+            setSelectedTable(null);
+            setCurrentView(view);
+          }
         }}
         pendingKitchenCount={pendingKitchenCount}
       />
@@ -97,7 +140,7 @@ const MainDashboard: React.FC = () => {
         />
 
         <main className="content-body">
-          {currentView === 'mesas' && (
+          {currentView === 'mesas' && isViewAllowedForRole('mesas', user?.role) && (
             <TablesPage
               onSelectTableForOrder={handleSelectTableForOrder}
               onSelectTableForCheckout={handleSelectTableForCheckout}
@@ -105,18 +148,20 @@ const MainDashboard: React.FC = () => {
             />
           )}
 
-          {currentView === 'order-taking' && (
+          {currentView === 'order-taking' && isViewAllowedForRole('order-taking', user?.role) && (
             <OrderTakingPage
               table={selectedTable}
               onBackToTables={handleBackToTables}
-              onOrderSent={() => setCurrentView('mesas')}
+              onOrderSent={handleOrderSent}
               initialMode={initialOrderMode}
             />
           )}
 
-          {currentView === 'cocina' && <KitchenPage />}
+          {currentView === 'cocina' && isViewAllowedForRole('cocina', user?.role) && (
+            <KitchenPage />
+          )}
 
-          {currentView === 'caja' && (
+          {currentView === 'caja' && isViewAllowedForRole('caja', user?.role) && (
             <CheckoutPage
               initialTable={selectedTable}
               onFinished={handleBackToTables}
@@ -124,9 +169,13 @@ const MainDashboard: React.FC = () => {
             />
           )}
 
-          {currentView === 'menu' && <MenuManagementPage />}
+          {currentView === 'menu' && isViewAllowedForRole('menu', user?.role) && (
+            <MenuManagementPage />
+          )}
 
-          {currentView === 'reportes' && <ReportsPage />}
+          {currentView === 'reportes' && isViewAllowedForRole('reportes', user?.role) && (
+            <ReportsPage />
+          )}
         </main>
       </div>
     </div>

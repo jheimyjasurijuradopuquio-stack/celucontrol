@@ -9,6 +9,7 @@ import {
 } from '../types';
 import {
   subscribeTables,
+  subscribeOpenTakeoutOrders,
   subscribeAttention,
   subscribeAttentionTickets,
   registerPaymentAndCloseTable
@@ -23,7 +24,9 @@ import {
   CheckCircle2,
   Printer,
   ArrowLeft,
-  DollarSign
+  DollarSign,
+  Utensils,
+  ShoppingBag
 } from 'lucide-react';
 
 interface CheckoutPageProps {
@@ -38,8 +41,17 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   onBackToTables
 }) => {
   const { user } = useAuth();
+  const [activeTab, setActiveTab] = useState<'salon' | 'llevar'>('salon');
+
+  // Mesas en Salón
   const [tables, setTables] = useState<DiningTable[]>([]);
   const [selectedTable, setSelectedTable] = useState<DiningTable | null>(initialTable || null);
+
+  // Pedidos Para Llevar
+  const [takeoutOrders, setTakeoutOrders] = useState<TableAttention[]>([]);
+  const [selectedTakeout, setSelectedTakeout] = useState<TableAttention | null>(null);
+
+  // Datos comunes de atención seleccionada
   const [attention, setAttention] = useState<TableAttention | null>(null);
   const [tickets, setTickets] = useState<KitchenTicket[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,39 +65,90 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successReceiptId, setSuccessReceiptId] = useState<string | null>(null);
 
-  // Cargar mesas ocupadas o por cobrar
+  // Escuchar mesas ocupadas o por pagar
   useEffect(() => {
     const unsub = subscribeTables((allTables) => {
       const active = allTables.filter((t) => t.estado === 'ocupada' || t.estado === 'por_pagar');
       setTables(active);
 
-      // Si no hay mesa seleccionada y hay mesas ocupadas, preseleccionar la primera
       if (!selectedTable && active.length > 0) {
         setSelectedTable(active[0]);
       } else if (selectedTable) {
         const found = allTables.find((t) => t.id === selectedTable.id);
-        if (found) setSelectedTable(found);
+        if (found) {
+          setSelectedTable(found);
+        } else if (active.length > 0) {
+          setSelectedTable(active[0]);
+        } else {
+          setSelectedTable(null);
+        }
       }
     });
 
     return () => unsub();
   }, []);
 
-  // Cargar atención activa de la mesa seleccionada
+  // Escuchar pedidos para llevar abiertos
   useEffect(() => {
-    if (!selectedTable?.atencionActivaId) {
+    const unsub = subscribeOpenTakeoutOrders((orders) => {
+      setTakeoutOrders(orders);
+
+      if (!selectedTakeout && orders.length > 0) {
+        setSelectedTakeout(orders[0]);
+      } else if (selectedTakeout) {
+        const found = orders.find((o) => o.id === selectedTakeout.id);
+        if (found) {
+          setSelectedTakeout(found);
+        } else if (orders.length > 0) {
+          setSelectedTakeout(orders[0]);
+        } else {
+          setSelectedTakeout(null);
+        }
+      }
+    });
+
+    return () => unsub();
+  }, []);
+
+  // Si se pasa una mesa inicial, fijar en salón
+  useEffect(() => {
+    if (initialTable) {
+      setActiveTab('salon');
+      setSelectedTable(initialTable);
+    }
+  }, [initialTable]);
+
+  // Si no hay mesa inicial y no hay mesas en salón pero sí pedidos para llevar, cambiar automáticamente a 'llevar'
+  useEffect(() => {
+    if (!initialTable && tables.length === 0 && takeoutOrders.length > 0) {
+      setActiveTab('llevar');
+    }
+  }, [tables.length, takeoutOrders.length, initialTable]);
+
+  // Determinar ID de atención actual
+  const currentAttentionId = activeTab === 'salon' ? selectedTable?.atencionActivaId : selectedTakeout?.id;
+
+  // Cargar atención activa y tickets en tiempo real
+  useEffect(() => {
+    if (!currentAttentionId) {
       setAttention(null);
       setTickets([]);
       return;
     }
 
     setLoading(true);
-    const unsubAttention = subscribeAttention(selectedTable.atencionActivaId, (data) => {
+    const unsubAttention = subscribeAttention(currentAttentionId, (data) => {
       setAttention(data);
+      if (data?.clienteNombre && !clienteNombre) {
+        setClienteNombre(data.clienteNombre);
+      }
+      if (data?.metodoPago && activeTab === 'llevar') {
+        setMetodoPago(data.metodoPago);
+      }
       setLoading(false);
     });
 
-    const unsubTickets = subscribeAttentionTickets(selectedTable.atencionActivaId, (t) => {
+    const unsubTickets = subscribeAttentionTickets(currentAttentionId, (t) => {
       setTickets(t);
     });
 
@@ -93,22 +156,27 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       unsubAttention();
       unsubTickets();
     };
-  }, [selectedTable]);
+  }, [currentAttentionId, activeTab]);
 
   // Consolidar todos los ítems de todas las comandas de esta atención
   const allItems: OrderItem[] = tickets.flatMap((t) => t.items);
   const total = attention?.totalAcumulado || allItems.reduce((acc, item) => acc + item.subtotal, 0);
   const subtotal = +(total / 1.18).toFixed(2);
   const igv = +(total - subtotal).toFixed(2);
-  const propinaSugerida = +(total * 0.10).toFixed(2);
+  const propinaSugerida = activeTab === 'salon' ? +(total * 0.10).toFixed(2) : 0;
 
   // Cálculo de vuelto para efectivo
   const numRecibido = parseFloat(montoRecibido) || 0;
   const vuelto = metodoPago === 'efectivo' && numRecibido >= total ? +(numRecibido - total).toFixed(2) : 0;
 
   const handleProcessPayment = async () => {
-    if (!selectedTable || !attention) {
+    if (activeTab === 'salon' && !selectedTable) {
       alert('Por favor selecciona una mesa con atención activa.');
+      return;
+    }
+
+    if (!attention) {
+      alert('Por favor selecciona una cuenta o pedido válido.');
       return;
     }
 
@@ -130,10 +198,16 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     setIsSubmitting(true);
 
     try {
+      const mesaId = activeTab === 'salon' && selectedTable ? selectedTable.id : 'llevar';
+      const mesaNumero = activeTab === 'salon' && selectedTable ? selectedTable.numero : 0;
+      const fallbackClienteNombre = activeTab === 'llevar'
+        ? (attention.clienteNombre || 'Cliente Para Llevar')
+        : 'Público General';
+
       const receiptId = await registerPaymentAndCloseTable(
         attention.id,
-        selectedTable.id,
-        selectedTable.numero,
+        mesaId,
+        mesaNumero,
         {
           subtotal,
           igv,
@@ -142,10 +216,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           montoRecibido: metodoPago === 'efectivo' ? numRecibido : total,
           vuelto: metodoPago === 'efectivo' ? vuelto : 0,
           tipoComprobante,
-          clienteNombre: clienteNombre || 'Público General',
-          clienteDocumento: clienteDocumento || '00000000',
+          clienteNombre: clienteNombre.trim() || fallbackClienteNombre,
+          clienteDocumento: clienteDocumento.trim() || '00000000',
           cajeroId: user?.id || 'caja-01',
-          cajeroNombre: user?.displayName || 'Caja Salón'
+          cajeroNombre: user?.displayName || 'Caja Pollería',
+          tipo: activeTab,
+          numeroPedido: attention.numeroPedido || undefined
         }
       );
 
@@ -162,10 +238,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     window.print();
   };
 
+  const hasActiveItem = activeTab === 'salon' ? !!selectedTable : !!selectedTakeout;
+
   return (
     <div>
-      {/* Botón Volver y Selector de Mesas si hay varias */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+      {/* Botón Volver y Segmented Tab Selector Salón vs Para Llevar */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20 }}>
         <button
           type="button"
           className="btn btn-secondary"
@@ -175,7 +253,82 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           <ArrowLeft size={16} /> Volver al Salón
         </button>
 
-        {tables.length > 1 && (
+        {/* Selector de Modo: Salón vs Para Llevar */}
+        <div style={{
+          display: 'inline-flex',
+          background: 'white',
+          padding: '4px',
+          borderRadius: 'var(--radius-lg)',
+          border: '1px solid var(--color-cream-border)',
+          boxShadow: 'var(--shadow-sm)',
+          gap: 4
+        }}>
+          <button
+            type="button"
+            onClick={() => setActiveTab('salon')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: activeTab === 'salon' ? 'var(--color-green-deep)' : 'transparent',
+              color: activeTab === 'salon' ? 'white' : 'var(--color-gray-700)',
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              transition: 'var(--transition)'
+            }}
+          >
+            <Utensils size={16} />
+            <span>Mesas en Salón</span>
+            <span style={{
+              background: activeTab === 'salon' ? 'rgba(255,255,255,0.25)' : 'var(--color-gray-200)',
+              color: activeTab === 'salon' ? 'white' : 'var(--color-gray-700)',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              fontSize: '0.75rem'
+            }}>
+              {tables.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('llevar')}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              padding: '8px 16px',
+              borderRadius: 'var(--radius-md)',
+              border: 'none',
+              background: activeTab === 'llevar' ? 'var(--color-green-deep)' : 'transparent',
+              color: activeTab === 'llevar' ? 'white' : 'var(--color-gray-700)',
+              fontWeight: 700,
+              fontSize: '0.85rem',
+              cursor: 'pointer',
+              transition: 'var(--transition)'
+            }}
+          >
+            <ShoppingBag size={16} />
+            <span>Para Llevar</span>
+            <span style={{
+              background: activeTab === 'llevar' ? 'rgba(255,255,255,0.25)' : 'var(--color-orange-light)',
+              color: activeTab === 'llevar' ? 'white' : 'var(--color-orange-primary)',
+              padding: '2px 8px',
+              borderRadius: '12px',
+              fontSize: '0.75rem',
+              fontWeight: 800
+            }}>
+              {takeoutOrders.length}
+            </span>
+          </button>
+        </div>
+
+        {/* Dropdown de selección individual según la pestaña activa */}
+        {activeTab === 'salon' && tables.length > 1 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--color-gray-700)' }}>
               Cambiar Mesa:
@@ -192,6 +345,29 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
               {tables.map((t) => (
                 <option key={t.id} value={t.id}>
                   Mesa {t.numero} ({t.mozoNombre || 'Mozo'})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {activeTab === 'llevar' && takeoutOrders.length > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--color-gray-700)' }}>
+              Seleccionar Pedido:
+            </span>
+            <select
+              value={selectedTakeout?.id || ''}
+              onChange={(e) => {
+                const found = takeoutOrders.find((o) => o.id === e.target.value);
+                if (found) setSelectedTakeout(found);
+              }}
+              className="input-field"
+              style={{ width: 'auto', marginTop: 0, padding: '6px 12px', fontSize: '0.85rem' }}
+            >
+              {takeoutOrders.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.numeroPedido || 'PL-001'} · {o.clienteNombre || 'Cliente'} (S/ {o.totalAcumulado.toFixed(2)})
                 </option>
               ))}
             </select>
@@ -229,7 +405,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
             ¡Pago Registrado con Éxito!
           </h3>
           <p style={{ color: 'var(--color-gray-600)', fontSize: '0.9rem', marginBottom: 20 }}>
-            La <strong>Mesa {selectedTable?.numero}</strong> ha sido liberada en Firestore y ya está disponible para nuevos clientes.
+            {activeTab === 'salon' ? (
+              <>La <strong>Mesa {selectedTable?.numero}</strong> ha sido liberada en Firestore y ya está disponible para nuevos clientes.</>
+            ) : (
+              <>El pedido <strong>{attention?.numeroPedido || 'Para Llevar'}</strong> de <strong>{attention?.clienteNombre || 'Cliente'}</strong> ha sido cobrado y cerrado exitosamente en Firestore.</>
+            )}
           </p>
 
           <div style={{
@@ -244,6 +424,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span>Comprobante:</span>
               <strong>{tipoComprobante.toUpperCase()} #{successReceiptId.substring(0, 8)}</strong>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span>Modalidad:</span>
+              <strong style={{ textTransform: 'capitalize' }}>
+                {activeTab === 'salon' ? `Salón (Mesa ${selectedTable?.numero})` : `Para Llevar (${attention?.numeroPedido || ''})`}
+              </strong>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span>Método:</span>
@@ -272,13 +458,16 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
             <button
               type="button"
               className="btn btn-primary"
-              onClick={onFinished}
+              onClick={() => {
+                setSuccessReceiptId(null);
+                onFinished();
+              }}
             >
-              Finalizar y Volver a Mesas
+              Finalizar y Continuar
             </button>
           </div>
         </div>
-      ) : !selectedTable ? (
+      ) : !hasActiveItem ? (
         <div style={{
           background: 'white',
           padding: 60,
@@ -288,16 +477,42 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
           maxWidth: 550,
           margin: '30px auto'
         }}>
-          <div style={{ fontSize: '3rem', marginBottom: 12 }}>🧾</div>
+          <div style={{ fontSize: '3rem', marginBottom: 12 }}>
+            {activeTab === 'salon' ? '🍽️' : '🛍️'}
+          </div>
           <h3 style={{ fontFamily: 'var(--font-display)', fontSize: '1.4rem', color: 'var(--color-green-deep)', marginBottom: 8 }}>
-            No hay mesas con cuentas por cobrar
+            {activeTab === 'salon'
+              ? 'No hay mesas con cuentas por cobrar'
+              : 'No hay pedidos para llevar pendientes de cobro'}
           </h3>
           <p style={{ color: 'var(--color-gray-500)', fontSize: '0.9rem', marginBottom: 20 }}>
-            Actualmente todas las mesas están libres o no han generado pedidos.
+            {activeTab === 'salon'
+              ? 'Actualmente todas las mesas están libres o no han generado pedidos.'
+              : 'Todos los pedidos para llevar han sido cobrados o aún no se han registrado nuevos.'}
           </p>
-          <button type="button" className="btn btn-primary" onClick={onBackToTables}>
-            Ir al Salón de Mesas
-          </button>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            {activeTab === 'salon' && takeoutOrders.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setActiveTab('llevar')}
+              >
+                Ver Pedidos Para Llevar ({takeoutOrders.length})
+              </button>
+            )}
+            {activeTab === 'llevar' && tables.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setActiveTab('salon')}
+              >
+                Ver Mesas en Salón ({tables.length})
+              </button>
+            )}
+            <button type="button" className="btn btn-secondary" onClick={onBackToTables}>
+              Ir al Salón de Mesas
+            </button>
+          </div>
         </div>
       ) : (
         /* Layout de Cobro: Precuenta a la izquierda, Pasarela de Pago a la derecha */
@@ -308,12 +523,26 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
               <div style={{ fontSize: '2rem', marginBottom: 4 }}>🍗</div>
               <h3>POLLERÍA DON BRASA</h3>
               <p className="receipt-meta">RUC: 20608975411 · Av. Los Héroes 452, Lima</p>
-              <p className="receipt-meta" style={{ fontWeight: 700, color: 'var(--color-green-deep)', marginTop: 4 }}>
-                ESTADO DE CONSUMO · MESA {selectedTable.numero}
-              </p>
-              <p className="receipt-meta">
-                Mozo: {selectedTable.mozoNombre || 'Salón'} · Comensales: {selectedTable.comensales || 2}
-              </p>
+
+              {activeTab === 'salon' && selectedTable ? (
+                <>
+                  <p className="receipt-meta" style={{ fontWeight: 700, color: 'var(--color-green-deep)', marginTop: 4 }}>
+                    ESTADO DE CONSUMO · MESA {selectedTable.numero}
+                  </p>
+                  <p className="receipt-meta">
+                    Mozo: {selectedTable.mozoNombre || 'Salón'} · Comensales: {selectedTable.comensales || 2}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="receipt-meta" style={{ fontWeight: 700, color: 'var(--color-orange-primary)', marginTop: 4 }}>
+                    PEDIDO PARA LLEVAR · {selectedTakeout?.numeroPedido || attention?.numeroPedido || 'PL-001'}
+                  </p>
+                  <p className="receipt-meta">
+                    Cliente: <strong>{selectedTakeout?.clienteNombre || attention?.clienteNombre || 'Cliente Para Llevar'}</strong> · Atiende: {attention?.mozoNombre || 'Caja'}
+                  </p>
+                </>
+              )}
             </div>
 
             {loading ? (
@@ -335,7 +564,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     {allItems.length === 0 ? (
                       <tr>
                         <td colSpan={4} style={{ textAlign: 'center', padding: 20, color: 'var(--color-gray-500)' }}>
-                          No hay comandas registradas en esta mesa.
+                          No hay ítems registrados en esta cuenta.
                         </td>
                       </tr>
                     ) : (
@@ -367,10 +596,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     <span>I.G.V. (18% Incluido):</span>
                     <span>S/ {igv.toFixed(2)}</span>
                   </div>
-                  <div className="total-row" style={{ color: 'var(--color-gray-500)', fontSize: '0.8rem' }}>
-                    <span>Propina Sugerida (10% voluntaria):</span>
-                    <span>S/ {propinaSugerida.toFixed(2)}</span>
-                  </div>
+                  {activeTab === 'salon' && (
+                    <div className="total-row" style={{ color: 'var(--color-gray-500)', fontSize: '0.8rem' }}>
+                      <span>Propina Sugerida (10% voluntaria):</span>
+                      <span>S/ {propinaSugerida.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="total-row grand-total">
                     <span>TOTAL A PAGAR:</span>
                     <span style={{ color: 'var(--color-orange-primary)' }}>S/ {total.toFixed(2)}</span>
@@ -387,7 +618,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                 Liquidación de Cuenta
               </h3>
               <p style={{ fontSize: '0.8rem', color: 'var(--color-gray-500)' }}>
-                Selecciona la modalidad de cobro y tipo de comprobante.
+                {activeTab === 'salon'
+                  ? 'Selecciona la modalidad de cobro y emite el comprobante para liberar la mesa.'
+                  : 'Selecciona la modalidad de cobro y confirma el pago del pedido para llevar.'}
               </p>
             </div>
 
@@ -499,9 +732,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
               </div>
             </div>
 
-            {/* Datos del Cliente si es Boleta o Factura */}
-            {tipoComprobante !== 'ticket' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {/* Datos del Cliente si es Boleta o Factura o si es Para Llevar */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {(tipoComprobante !== 'ticket' || activeTab === 'llevar') && (
                 <input
                   type="text"
                   placeholder={tipoComprobante === 'factura' ? 'Razón Social' : 'Nombre del Cliente'}
@@ -510,6 +743,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                   value={clienteNombre}
                   onChange={(e) => setClienteNombre(e.target.value)}
                 />
+              )}
+              {tipoComprobante !== 'ticket' && (
                 <input
                   type="text"
                   placeholder={tipoComprobante === 'factura' ? 'Número de RUC (11 dígitos)' : 'DNI (8 dígitos)'}
@@ -518,8 +753,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                   value={clienteDocumento}
                   onChange={(e) => setClienteDocumento(e.target.value)}
                 />
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Botón de Confirmación */}
             <button
@@ -530,7 +765,11 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
               disabled={isSubmitting || total <= 0}
             >
               <DollarSign size={20} />
-              {isSubmitting ? 'Registrando cobro...' : `COBRAR S/ ${total.toFixed(2)} Y LIBERAR MESA`}
+              {isSubmitting
+                ? 'Registrando cobro...'
+                : activeTab === 'salon'
+                ? `COBRAR S/ ${total.toFixed(2)} Y LIBERAR MESA`
+                : `COBRAR S/ ${total.toFixed(2)} Y CERRAR PEDIDO`}
             </button>
           </div>
         </div>

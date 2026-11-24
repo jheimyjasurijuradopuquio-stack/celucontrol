@@ -1,14 +1,12 @@
 import React from 'react';
 import { useAuth } from '../context/AuthContext';
-import { UserRole } from '../types';
 import {
   UtensilsCrossed,
   ChefHat,
   Receipt,
   BookOpen,
   BarChart3,
-  LogOut,
-  Sparkles
+  LogOut
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -22,19 +20,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
   pendingKitchenCount = 0
 }) => {
-  const { user, loginAsRole, logout } = useAuth();
-  const [switching, setSwitching] = React.useState(false);
-
-  const handleRoleSwitch = async (r: UserRole) => {
-    setSwitching(true);
-    try {
-      await loginAsRole(r);
-    } catch (err) {
-      console.error('Error switching role:', err);
-    } finally {
-      setSwitching(false);
-    }
-  };
+  const { user, logout } = useAuth();
 
   return (
     <aside className="sidebar">
@@ -47,55 +33,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* User info & Quick Role Switcher */}
+      {/* User profile info */}
       <div className="user-profile-badge">
         <div className="user-profile-header">
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {user?.displayName}
+            <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {user?.displayName || 'Trabajador'}
+            </div>
+            <div style={{ fontSize: '0.72rem', color: '#a3c4b0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginBottom: 4 }}>
+              {user?.email}
             </div>
             <span className={`role-pill ${user?.role || 'mozo'}`}>
-              Rol: {user?.role}
+              Rol: {user?.role ? user.role.toUpperCase() : 'MOZO'}
             </span>
           </div>
-        </div>
-
-        <div style={{ fontSize: '0.65rem', color: '#a3c4b0', marginBottom: 4, fontWeight: 600 }}>
-          Cambiar rol de prueba:
-        </div>
-        <div className="quick-role-switcher">
-          <button
-            type="button"
-            className={`role-switch-btn ${user?.role === 'admin' ? 'active' : ''}`}
-            onClick={() => handleRoleSwitch('admin')}
-            title="Administrador"
-          >
-            Admin
-          </button>
-          <button
-            type="button"
-            className={`role-switch-btn ${user?.role === 'mozo' ? 'active' : ''}`}
-            onClick={() => handleRoleSwitch('mozo')}
-            title="Mozo de Salón"
-          >
-            Mozo
-          </button>
-          <button
-            type="button"
-            className={`role-switch-btn ${user?.role === 'cocina' ? 'active' : ''}`}
-            onClick={() => handleRoleSwitch('cocina')}
-            title="Cocina"
-          >
-            Cocina
-          </button>
-          <button
-            type="button"
-            className={`role-switch-btn ${user?.role === 'cajero' ? 'active' : ''}`}
-            onClick={() => handleRoleSwitch('cajero')}
-            title="Cajero"
-          >
-            Caja
-          </button>
         </div>
       </div>
 
@@ -103,26 +54,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <nav className="nav-menu">
         <div className="nav-heading">OPERACIÓN SALÓN</div>
 
-        <button
-          type="button"
-          className={`nav-link ${currentView === 'mesas' ? 'active' : ''}`}
-          onClick={() => onNavigate('mesas')}
-        >
-          <UtensilsCrossed size={18} />
-          <span>Mesas & Salón</span>
-        </button>
+        {(user?.role === 'admin' || user?.role === 'mozo' || user?.role === 'cajero') && (
+          <button
+            type="button"
+            className={`nav-link ${currentView === 'mesas' ? 'active' : ''}`}
+            onClick={() => onNavigate('mesas')}
+          >
+            <UtensilsCrossed size={18} />
+            <span>Mesas & Salón</span>
+          </button>
+        )}
 
-        <button
-          type="button"
-          className={`nav-link ${currentView === 'cocina' ? 'active' : ''}`}
-          onClick={() => onNavigate('cocina')}
-        >
-          <ChefHat size={18} />
-          <span>Monitor Cocina</span>
-          {pendingKitchenCount > 0 && (
-            <span className="nav-badge">{pendingKitchenCount}</span>
-          )}
-        </button>
+        {(user?.role === 'admin' || user?.role === 'cocina' || user?.role === 'mozo' || user?.role === 'cajero') && (
+          <button
+            type="button"
+            className={`nav-link ${currentView === 'cocina' ? 'active' : ''}`}
+            onClick={() => onNavigate('cocina')}
+          >
+            <ChefHat size={18} />
+            <span>Monitor Cocina</span>
+            {pendingKitchenCount > 0 && (
+              <span className="nav-badge">{pendingKitchenCount}</span>
+            )}
+          </button>
+        )}
 
         {(user?.role === 'cajero' || user?.role === 'admin') && (
           <button
@@ -135,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         )}
 
-        {(user?.role === 'admin') && (
+        {user?.role === 'admin' && (
           <>
             <div className="nav-heading">ADMINISTRACIÓN</div>
 

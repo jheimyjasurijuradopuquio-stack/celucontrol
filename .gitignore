@@ -18,6 +18,8 @@ dist-ssr
 !.env.example
 scratch/
 .firebase/
+_backup*
+*.bak
 
 # Editor directories and files
 .vscode/*

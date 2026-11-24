@@ -1,4 +1,3 @@
-
 rules_version = '2';
 
 service cloud.firestore {
@@ -53,8 +52,8 @@ service cloud.firestore {
 
     match /mesas/{id} {
       allow read: if signedIn();
-      allow create: if isMozo();
-      allow update: if isMozo() || isCajero();
+      allow create: if isMozo() || isAdmin();
+      allow update: if isMozo() || isCajero() || isAdmin();
       allow delete: if isAdmin();
     }
 
@@ -70,15 +69,15 @@ service cloud.firestore {
 
     match /atenciones/{id} {
       allow read: if signedIn();
-      allow create: if isMozo();
-      allow update: if isMozo() || isCajero();
+      allow create: if isMozo() || isCajero() || isAdmin();
+      allow update: if isMozo() || isCajero() || isAdmin();
       allow delete: if isAdmin();
     }
 
     match /comandas/{id} {
       allow read: if signedIn();
-      allow create: if isMozo();
-      allow update: if isCocina() || isMozo();
+      allow create: if isMozo() || isCajero() || isAdmin();
+      allow update: if isCocina() || isMozo() || isCajero() || isAdmin();
       allow delete: if isAdmin();
     }
 

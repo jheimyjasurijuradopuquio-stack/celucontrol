@@ -118,6 +118,8 @@ export interface PaymentReceipt {
   cajeroId: string;
   cajeroNombre: string;
   fechaPago: any;
+  tipo?: OrderMode;
+  numeroPedido?: string;
 }
 
 export interface DailySummary {

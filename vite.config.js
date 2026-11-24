@@ -3,5 +3,9 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/celucontrol/',
   plugins: [react()],
+  resolve: {
+    extensions: ['.tsx', '.ts', '.jsx', '.js', '.json']
+  }
 })

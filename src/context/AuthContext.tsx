@@ -14,7 +14,6 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 interface AuthContextType {
   user: AppUser | null;
   firebaseUser: FirebaseUser | null;
-  loginAsRole: (role: UserRole) => Promise<void>;
   loginWithEmail: (email: string, pass: string, registerData?: { displayName: string; role: UserRole }) => Promise<void>;
   logout: () => Promise<void>;
   loading: boolean;
@@ -22,29 +21,6 @@ interface AuthContextType {
   clearAuthError: () => void;
   isAuthConfigured: boolean;
 }
-
-export const ROLE_CREDENTIALS: Record<UserRole, { email: string; pass: string; displayName: string }> = {
-  admin: {
-    email: 'admin@donbrasa.pe',
-    pass: 'Admin2026!',
-    displayName: 'Carlos Vega (Administrador)'
-  },
-  mozo: {
-    email: 'mozo@donbrasa.pe',
-    pass: 'Mozo2026!',
-    displayName: 'Juan Pérez (Mozo Salón)'
-  },
-  cocina: {
-    email: 'cocina@donbrasa.pe',
-    pass: 'Cocina2026!',
-    displayName: 'Chef Marco (Cocina & Brasas)'
-  },
-  cajero: {
-    email: 'cajero@donbrasa.pe',
-    pass: 'Cajero2026!',
-    displayName: 'María Silva (Cajera Principal)'
-  }
-};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -63,7 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setFirebaseUser(fbUser);
       if (fbUser) {
         try {
-          // Consultar perfil y rol en Firestore
+          // El rol se obtiene EXCLUSIVAMENTE del documento de usuario autorizado en Firestore
           const userDocRef = doc(db, 'usuarios', fbUser.uid);
           const docSnap = await getDoc(userDocRef);
 
@@ -72,49 +48,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser({
               id: fbUser.uid,
               email: fbUser.email || '',
-              displayName: data.displayName || fbUser.displayName || fbUser.email?.split('@')[0] || 'Usuario',
+              displayName: data.displayName || fbUser.displayName || fbUser.email?.split('@')[0] || 'Trabajador',
               role: (data.role as UserRole) || 'mozo',
-              active: true
+              active: data.active !== false
             });
           } else {
-            // Mapear rol a partir del correo si el documento aún no existe
-            const email = (fbUser.email || '').toLowerCase();
-            let role: UserRole = 'mozo';
-            if (email.includes('admin')) role = 'admin';
-            else if (email.includes('cocina')) role = 'cocina';
-            else if (email.includes('caja')) role = 'cajero';
-
-            const nuevoUsuario: AppUser = {
+            // Usuario sin documento previo: asignar rol seguro restringido (mozo) sin privilegios de administrador
+            const usuarioBase: AppUser = {
               id: fbUser.uid,
               email: fbUser.email || '',
-              displayName: fbUser.displayName || email.split('@')[0],
-              role,
+              displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Trabajador',
+              role: 'mozo',
               active: true
             };
 
-            // Intentar persistir perfil en Firestore
             try {
-              await setDoc(userDocRef, nuevoUsuario, { merge: true });
+              await setDoc(userDocRef, usuarioBase, { merge: true });
             } catch (e) {
-              console.warn('No se pudo guardar perfil inicial en usuarios:', e);
+              console.warn('Nota de permisos al crear perfil en usuarios:', e);
             }
 
-            setUser(nuevoUsuario);
+            setUser(usuarioBase);
           }
         } catch (err) {
-          console.error('Error al recuperar perfil de usuario:', err);
-          // Fallback con datos del token Firebase Auth
-          const email = (fbUser.email || '').toLowerCase();
-          let role: UserRole = 'mozo';
-          if (email.includes('admin')) role = 'admin';
-          else if (email.includes('cocina')) role = 'cocina';
-          else if (email.includes('caja')) role = 'cajero';
-
+          console.error('Error al recuperar perfil de usuario desde Firestore:', err);
+          // En caso de error de red, establecer usuario básico con rol seguro 'mozo'
           setUser({
             id: fbUser.uid,
             email: fbUser.email || '',
-            displayName: fbUser.displayName || email.split('@')[0],
-            role,
+            displayName: fbUser.displayName || fbUser.email?.split('@')[0] || 'Trabajador',
+            role: 'mozo',
             active: true
           });
         }
@@ -126,75 +89,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return () => unsubscribe();
   }, []);
-
-  // Autenticación Real por Rol con Firebase Auth
-  const loginAsRole = async (role: UserRole) => {
-    setAuthError(null);
-    const creds = ROLE_CREDENTIALS[role];
-
-    try {
-      // 1. Intentar iniciar sesión real en Firebase Auth
-      let credential;
-      try {
-        credential = await signInWithEmailAndPassword(auth, creds.email, creds.pass);
-      } catch (signInErr: any) {
-        if (signInErr.code === 'auth/configuration-not-found') {
-          setIsAuthConfigured(false);
-          setAuthError(
-            'Firebase Authentication no está habilitado en tu consola. Ve a Firebase Console > Build > Authentication > Comenzar > Habilitar Correo/Contraseña.'
-          );
-          throw signInErr;
-        }
-
-        // Si el usuario no existe, crearlo automáticamente en Firebase Auth
-        if (
-          signInErr.code === 'auth/user-not-found' ||
-          signInErr.code === 'auth/invalid-credential' ||
-          signInErr.code === 'auth/invalid-email'
-        ) {
-          try {
-            credential = await createUserWithEmailAndPassword(auth, creds.email, creds.pass);
-            await updateProfile(credential.user, { displayName: creds.displayName });
-          } catch (createErr: any) {
-            if (createErr.code === 'auth/configuration-not-found') {
-              setIsAuthConfigured(false);
-              setAuthError(
-                'Firebase Authentication no está habilitado en tu consola. Ve a Firebase Console > Build > Authentication > Comenzar > Habilitar Correo/Contraseña.'
-              );
-              throw createErr;
-            }
-            throw createErr;
-          }
-        } else {
-          throw signInErr;
-        }
-      }
-
-      // 2. Registrar/Actualizar rol en la colección 'usuarios' de Firestore
-      if (credential?.user) {
-        const userDocRef = doc(db, 'usuarios', credential.user.uid);
-        const appUserData: AppUser = {
-          id: credential.user.uid,
-          email: creds.email,
-          displayName: creds.displayName,
-          role,
-          active: true
-        };
-        try {
-          await setDoc(userDocRef, appUserData, { merge: true });
-        } catch (dbErr) {
-          console.warn('Nota de permisos Firestore al guardar perfil de usuario:', dbErr);
-        }
-        setUser(appUserData);
-      }
-    } catch (err: any) {
-      console.error('Error autenticando con Firebase Auth:', err);
-      if (!authError) {
-        setAuthError(err.message || 'Error al autenticar en Firebase Auth.');
-      }
-      throw err;
-    }
-  };
 
   // Iniciar sesión o registrarse con correo y contraseña
   const loginWithEmail = async (
@@ -210,11 +104,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const credential = await createUserWithEmailAndPassword(auth, email, pass);
         await updateProfile(credential.user, { displayName: registerData.displayName });
 
-        // Protección estricta contra auto-elevación a administrador
-        let safeRole: UserRole = registerData.role;
-        if (safeRole === 'admin' && email.toLowerCase() !== 'admin@donbrasa.pe') {
-          safeRole = 'mozo';
-        }
+        // Protección estricta: un usuario que se registra por su cuenta no puede asignarse rol admin
+        const safeRole: UserRole = registerData.role === 'admin' ? 'mozo' : registerData.role;
 
         const newUser: AppUser = {
           id: credential.user.uid,
@@ -232,7 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setUser(newUser);
       } else {
-        // Inicio de sesión
+        // Inicio de sesión normal con correo y contraseña
         await signInWithEmailAndPassword(auth, email, pass);
       }
     } catch (err: any) {
@@ -242,12 +133,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setAuthError(
           'Firebase Authentication no está habilitado en tu consola. Ve a Firebase Console > Build > Authentication > Comenzar > Habilitar Correo/Contraseña.'
         );
-      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found') {
-        setAuthError('Correo o contraseña incorrectos. Verifica tus credenciales o regístrate.');
+      } else if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setAuthError('Correo o contraseña incorrectos. Verifica tus credenciales.');
       } else if (err.code === 'auth/weak-password') {
         setAuthError('La contraseña debe tener al menos 6 caracteres.');
       } else if (err.code === 'auth/email-already-in-use') {
-        setAuthError('Ese correo ya está registrado. Inicia sesión directamente.');
+        setAuthError('Ese correo ya está registrado. Inicia sesión con tu contraseña.');
       } else {
         setAuthError(err.message || 'Error al autenticar en Firebase Auth.');
       }
@@ -263,6 +154,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     setUser(null);
     setFirebaseUser(null);
+    setAuthError(null);
   };
 
   return (
@@ -270,7 +162,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         firebaseUser,
-        loginAsRole,
         loginWithEmail,
         logout,
         loading,
